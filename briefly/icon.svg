@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background Gradient: Deep Purple to Violet -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#7C3AED" />
+    </linearGradient>
+    
+    <!-- Sparkle Gradient: Gold / Yellow -->
+    <linearGradient id="sparkle-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE047" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+  </defs>
+  
+  <!-- App Icon Background -->
+  <rect width="1024" height="1024" rx="225" fill="url(#bg-grad)" />
+  
+  <!-- Document / Transcript Box (Summarized Content) -->
+  <g transform="translate(440, 220)">
+    <rect width="400" height="480" rx="40" fill="#ffffff" opacity="0.95" />
+    
+    <!-- Unimportant Text Lines (Raw Transcript) -->
+    <rect x="60" y="70" width="280" height="24" rx="12" fill="#E2E8F0" />
+    <rect x="60" y="130" width="240" height="24" rx="12" fill="#E2E8F0" />
+    <rect x="60" y="190" width="260" height="24" rx="12" fill="#E2E8F0" />
+    
+    <!-- AI Summarized / Highlighted Text Lines -->
+    <rect x="60" y="280" width="220" height="36" rx="18" fill="#8B5CF6" />
+    <rect x="60" y="350" width="160" height="36" rx="18" fill="#8B5CF6" />
+    <!-- Small star next to the summary to indicate AI generation -->
+    <g transform="translate(320, 298)" fill="url(#sparkle-grad)" transform-origin="320 298" scale="0.3">
+      <path d="M0 -60 Q0 0 60 0 Q0 0 0 60 Q0 0 -60 0 Q0 0 0 -60" />
+    </g>
+  </g>
+
+  <!-- Soundwaves / Ripples behind Microphone -->
+  <g transform="translate(320, 512)" opacity="0.2">
+    <circle cx="0" cy="0" r="200" fill="none" stroke="#ffffff" stroke-width="24" />
+    <circle cx="0" cy="0" r="300" fill="none" stroke="#ffffff" stroke-width="24" />
+  </g>
+
+  <!-- Microphone -->
+  <g transform="translate(320, 512)">
+    <!-- Mic handle/base -->
+    <path d="M-70 140 L-70 180 A70 70 0 0 0 70 180 L70 140" fill="none" stroke="#ffffff" stroke-width="40" stroke-linecap="round" />
+    <line x1="0" y1="250" x2="0" y2="340" stroke="#ffffff" stroke-width="40" stroke-linecap="round" />
+    <line x1="-80" y1="340" x2="80" y2="340" stroke="#ffffff" stroke-width="40" stroke-linecap="round" />
+    
+    <!-- Mic capsule -->
+    <rect x="-80" y="-200" width="160" height="340" rx="80" fill="#ffffff" />
+    <!-- Inner detail (Waveform-like slits) -->
+    <rect x="-24" y="-120" width="48" height="120" rx="24" fill="#C4B5FD" />
+    <!-- Small slit -->
+    <rect x="-24" y="30" width="48" height="40" rx="20" fill="#C4B5FD" />
+  </g>
+
+  <!-- Large AI Sparkles (Magic/Processing) -->
+  <g transform="translate(860, 140)" fill="url(#sparkle-grad)">
+    <path d="M0 -70 Q0 0 70 0 Q0 0 0 70 Q0 0 -70 0 Q0 0 0 -70" />
+  </g>
+  <g transform="translate(940, 260)" fill="url(#sparkle-grad)">
+    <path transform="scale(0.5)" d="M0 -70 Q0 0 70 0 Q0 0 0 70 Q0 0 -70 0 Q0 0 0 -70" />
+  </g>
+  <g transform="translate(740, 80)" fill="url(#sparkle-grad)">
+    <path transform="scale(0.35)" d="M0 -70 Q0 0 70 0 Q0 0 0 70 Q0 0 -70 0 Q0 0 0 -70" />
+  </g>
+
+</svg>
