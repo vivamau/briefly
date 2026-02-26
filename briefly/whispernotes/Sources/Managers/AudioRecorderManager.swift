@@ -9,6 +9,7 @@ import AppKit
 class AudioRecorderManager: NSObject, ObservableObject {
     @Published var isRecording = false
     @Published var permissionGranted = false
+    @Published var errorMessage: String?
     
     private var audioRecorder: AVAudioRecorder?
     
@@ -26,19 +27,40 @@ class AudioRecorderManager: NSObject, ObservableObject {
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
             DispatchQueue.main.async {
                 self?.permissionGranted = granted
+                if !granted {
+                    self?.errorMessage = "Microphone access denied. Please enable it in System Settings > Privacy & Security > Microphone."
+                }
             }
         }
         #else
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
             DispatchQueue.main.async {
                 self?.permissionGranted = granted
+                if !granted {
+                    self?.errorMessage = "Microphone access denied. Please enable it in Settings > Privacy > Microphone."
+                }
             }
         }
         #endif
     }
     
     func startRecording() {
-        guard permissionGranted else { return }
+        errorMessage = nil
+        
+        guard permissionGranted else {
+            errorMessage = "Microphone permission not granted. Please check System Settings > Privacy & Security > Microphone."
+            print("Recording blocked: microphone permission not granted")
+            return
+        }
+        
+        // Check if a microphone is actually available (Mac Mini, Mac Pro, etc. have no built-in mic)
+        #if os(macOS)
+        if AVCaptureDevice.default(for: .audio) == nil {
+            errorMessage = "No microphone found. Please connect an external microphone (USB, Bluetooth, or headset)."
+            print("Recording blocked: no audio input device found (this Mac may not have a built-in microphone)")
+            return
+        }
+        #endif
         
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
@@ -46,7 +68,8 @@ class AudioRecorderManager: NSObject, ObservableObject {
             try session.setCategory(.playAndRecord, mode: .default)
             try session.setActive(true)
         } catch {
-            print("Failed to set up audio session")
+            errorMessage = "Failed to set up audio session: \(error.localizedDescription)"
+            print("Failed to set up audio session: \(error)")
             return
         }
         #endif
@@ -57,7 +80,7 @@ class AudioRecorderManager: NSObject, ObservableObject {
         let audioFilename = appSupportPath.appendingPathComponent("\(UUID().uuidString).m4a")
         currentRecordingURL = audioFilename
         
-        let settings = [
+        let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: 44100,
             AVNumberOfChannelsKey: 1,
@@ -66,18 +89,27 @@ class AudioRecorderManager: NSObject, ObservableObject {
         
         do {
             audioRecorder = try AVAudioRecorder(url: audioFilename, settings: settings)
-            audioRecorder?.record()
-            isRecording = true
-            startTimer()
+            let started = audioRecorder?.record() ?? false
             
-            // Play system "Start Recording" sound for accessibility
-            #if os(iOS)
-            AudioServicesPlaySystemSound(1113)
-            #elseif os(macOS)
-            NSSound(named: "Hero")?.play()
-            #endif
+            if started {
+                isRecording = true
+                startTimer()
+                
+                // Play system "Start Recording" sound for accessibility
+                #if os(iOS)
+                AudioServicesPlaySystemSound(1113)
+                #elseif os(macOS)
+                NSSound(named: "Hero")?.play()
+                #endif
+            } else {
+                errorMessage = "Recording failed to start. No microphone is available — please connect an external microphone."
+                print("AVAudioRecorder.record() returned false — no audio input device available")
+                audioRecorder = nil
+                currentRecordingURL = nil
+            }
             
         } catch {
+            errorMessage = "Could not start recording: \(error.localizedDescription)"
             print("Could not start recording: \(error)")
         }
     }

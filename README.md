@@ -52,5 +52,66 @@ To fix this, you must **virtually sign the app on your own Mac** using the Termi
    ```
 4. Re-open the app. When you press Record, it should now properly prompt you for Microphone access and record successfully!
 
+---
+
+## Building from Source
+
+Follow these steps to build the app yourself and package it as a distributable DMG.
+
+### Prerequisites
+
+1. **macOS** — the build must be run on a Mac.
+2. **Xcode** — install from the Mac App Store (the full IDE, not just Command Line Tools).
+3. **Xcode Command Line Tools** must point to the full Xcode installation:
+   ```bash
+   # Check the current path
+   xcode-select -p
+   # If it shows /Library/Developer/CommandLineTools, switch it:
+   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+   ```
+
+### Build the DMG
+
+A build script is included that handles everything — archiving, ad-hoc code signing, and DMG creation:
+
+```bash
+cd briefly
+./build_dmg.sh
+```
+
+The script will:
+1. **Verify** that Xcode is properly configured
+2. **Archive** the app in Release configuration for macOS
+3. **Export** the `.app` bundle from the archive
+4. **Code sign** with an ad-hoc signature (no Apple Developer account needed)
+5. **Package** into a DMG with a drag-to-Applications layout
+
+### Output
+
+When the build completes, you'll find the DMG at:
+
+```
+briefly/build/briefly.dmg
+```
+
+You can distribute this file freely — share it via a website, GitHub Releases, Google Drive, etc.
+
+> **Note:** Each time you run the script, the `build/` directory is cleaned and rebuilt from scratch.
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `xcode-select: error: tool 'xcodebuild' requires Xcode` | Run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` |
+| `No App Category is set` warning | This is cosmetic — the build still succeeds. To fix, add `LSApplicationCategoryType` to `Info.plist`. |
+| Archive fails with signing errors | Make sure `CODE_SIGN_STYLE = Automatic` is set in the Xcode project and no specific team is required. |
+
+---
+
 ### Future Improvements
 To eliminate these Gatekeeper warnings and local-signing workarounds entirely, the application would need to be officially signed and notarized using a paid Apple Developer Program account ($99/year).
+
+---
+
+## License
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See the [LICENSE](LICENSE) file for details.

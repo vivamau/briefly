@@ -14,6 +14,24 @@ class AudioPlayerManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if audioPlayer?.url == audioURL { return }
         stopPlayback()
         
+        // Validate file exists and has content before attempting playback
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            print("Playback failed: Audio file does not exist at \(audioURL.path)")
+            return
+        }
+        
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: audioURL.path)
+            let fileSize = attributes[.size] as? Int ?? 0
+            if fileSize == 0 {
+                print("Playback failed: Audio file is empty (0 bytes) at \(audioURL.path)")
+                return
+            }
+        } catch {
+            print("Playback failed: Could not read file attributes: \(error.localizedDescription)")
+            return
+        }
+        
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         do {

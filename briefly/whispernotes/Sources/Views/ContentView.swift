@@ -91,6 +91,14 @@ struct ContentView: View {
         .onAppear {
             recorder.checkPermissions()
         }
+        .alert("Recording Error", isPresented: Binding(
+            get: { recorder.errorMessage != nil },
+            set: { if !$0 { recorder.errorMessage = nil } }
+        )) {
+            Button("OK") { recorder.errorMessage = nil }
+        } message: {
+            Text(recorder.errorMessage ?? "")
+        }
     }
     
     @State private var isPulsing = false
