@@ -19,6 +19,9 @@ struct NoteDetailView: View {
     @State private var isHoveringTitle = false
     @State private var isEditingSummary = false
     @State private var isEditingTranscript = false
+    @State private var processingError: String?
+    @State private var generationTask: Task<Void, Never>?
+    @FocusState private var isTranscriptFocused: Bool
     
     var body: some View {
         ScrollView {
@@ -170,31 +173,42 @@ struct NoteDetailView: View {
                             .accessibilityLabel("Share summary text")
                         }
                         
-                        if note.audioURL != nil {
-                            Spacer()
-                            
-                            Picker("Provider", selection: $summarizer.selectedProvider) {
-                                ForEach(LLMProvider.allCases) { provider in
-                                    Text(provider.rawValue).tag(provider)
-                                }
+                        Spacer()
+                        
+                        Picker("Provider", selection: $summarizer.selectedProvider) {
+                            ForEach(LLMProvider.allCases) { provider in
+                                Text(provider.id == LLMProvider.ollama.id ? "Ollama (\(summarizer.ollamaModel))" : provider.rawValue).tag(provider)
                             }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
-                            .disabled(isProcessing)
-                            
-                            if isProcessing {
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .disabled(isProcessing)
+                        
+                        if isProcessing {
+                            HStack(spacing: 8) {
                                 ProgressView()
-                                    .accessibilityLabel("Generating summary")
-                                    .padding(.leading, 8)
-                            } else {
-                                Button("Generate") {
-                                    Task { await processAudio() }
+                                    .accessibilityLabel("Generating process running")
+                                    
+                                Button(action: {
+                                    generationTask?.cancel()
+                                    isProcessing = false
+                                    processingError = "Generation stopped by user."
+                                }) {
+                                    HStack {
+                                        Image(systemName: "xmark.circle.fill")
+                                        Text("Stop Generate")
+                                    }
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .accessibilityHint("Uses AI to generate a transcript and summary")
+                                .tint(.red)
+                                .accessibilityHint("Stops the active transcription or summmarization")
                             }
                         } else {
-                            Spacer()
+                            Button("Generate") {
+                                generationTask = Task { await processAudio() }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityHint("Uses AI to generate a transcript and summary")
                         }
                         
                         if localSummary != nil || note.summary != nil {
@@ -229,15 +243,24 @@ struct NoteDetailView: View {
                             .cornerRadius(8)
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
                         } else {
-                            Text(.init(summary))
+                            Text(formatMarkdown(summary))
                                 .font(.title3)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding()
                                 .background(Color.secondary.opacity(0.1))
                                 .cornerRadius(12)
-                                .accessibilityLabel("Summary: \(summary)")
                         }
+                        
+                        if let duration = note.summaryDuration {
+                            Text("Generated in \(formatDuration(duration))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    } else if let error = processingError {
+                        Text("Error generating summary: \(error)")
+                            .font(.callout)
+                            .foregroundColor(.red)
                     } else if !isProcessing {
                         Text("No summary generated yet.")
                             .italic()
@@ -292,6 +315,7 @@ struct NoteDetailView: View {
                                 get: { transcript },
                                 set: { localTranscript = $0 }
                             ))
+                            .focused($isTranscriptFocused)
                             .font(.system(.title3, design: .monospaced))
                             .frame(minHeight: 200)
                             .padding(8)
@@ -299,14 +323,19 @@ struct NoteDetailView: View {
                             .cornerRadius(8)
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
                         } else {
-                            Text(.init(transcript))
+                            Text(formatMarkdown(transcript))
                                 .font(.title3)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding()
                                 .background(Color.secondary.opacity(0.1))
                                 .cornerRadius(12)
-                                .accessibilityLabel("Transcript: \(transcript)")
+                        }
+                        
+                        if let duration = note.transcriptionDuration {
+                            Text("Generated in \(formatDuration(duration))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
                         }
                     } else {
                         Text("No transcript available.")
@@ -321,6 +350,9 @@ struct NoteDetailView: View {
         .onAppear {
             if let url = note.audioURL {
                 player.load(audioURL: url)
+            } else if note.transcript == "" {
+                localTranscript = ""
+                isEditingTranscript = true
             }
         }
         .onChange(of: note.id) { _, _ in
@@ -329,11 +361,26 @@ struct NoteDetailView: View {
             localTranscript = nil
             localSummary = nil
             isProcessing = false
+            processingError = nil
             isEditingSummary = false
-            isEditingTranscript = false
+            
+            let isTextNote = (note.audioURL == nil && note.transcript == "")
+            if isTextNote {
+                localTranscript = ""
+            }
+            isEditingTranscript = isTextNote
+            generationTask?.cancel()
+            generationTask = nil
             
             if let url = note.audioURL {
                 player.load(audioURL: url)
+            }
+        }
+        .onChange(of: isEditingTranscript) { _, isEditing in
+            if isEditing {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    isTranscriptFocused = true
+                }
             }
         }
     }
@@ -378,23 +425,97 @@ struct NoteDetailView: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
     
-    private func processAudio() async {
-        guard let url = note.audioURL else { return }
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        if duration < 60 {
+            return String(format: "%.1fs", duration)
+        } else {
+            let minutes = Int(duration) / 60
+            let seconds = duration.truncatingRemainder(dividingBy: 60)
+            return String(format: "%dm %.1fs", minutes, seconds)
+        }
+    }
+    
+    private func formatMarkdown(_ text: String) -> LocalizedStringKey {
+        let lines = text.components(separatedBy: .newlines)
+        var formattedLines: [String] = []
         
-        isProcessing = true
-        do {
-            let result = try await summarizer.transcribeAndSummarize(audioURL: url)
-            DispatchQueue.main.async {
-                self.localTranscript = result.transcript
-                self.localSummary = result.summary
-                // Here we would also update the SwiftData Note object
-                self.note.transcript = result.transcript
-                self.note.summary = result.summary
-                self.isProcessing = false
+        for line in lines {
+            var modifiedLine = line
+            
+            // 1. Convert Markdown headers (### Header) to Bold text (**Header**)
+            if let range = modifiedLine.range(of: "^#{1,6}\\s+", options: .regularExpression) {
+                modifiedLine = "**" + modifiedLine[range.upperBound...] + "**"
             }
+            
+            // 2. Convert Markdown list items (* Item or - Item) to visual bullets (• Item) to prevent them 
+            // from being interpreted as broken italic tags or stripped entirely.
+            if let range = modifiedLine.range(of: "^(\\s*)[\\*\\-]\\s+", options: .regularExpression) {
+                let leadingWhitespace = modifiedLine[...range.lowerBound].dropLast() // Keep indentation
+                modifiedLine = String(leadingWhitespace) + "• " + modifiedLine[range.upperBound...]
+            }
+            
+            formattedLines.append(modifiedLine)
+        }
+        
+        // Pass the cleaned string explicitly as a LocalizedStringKey to trigger SwiftUI's robust inline markdown renderer
+        // which brilliantly preserves raw \n line breaks (unlike AttributedString block parsing).
+        return LocalizedStringKey(formattedLines.joined(separator: "\n"))
+    }
+    
+    private func processAudio() async {
+        isProcessing = true
+        processingError = nil
+        do {
+            let transcriptText: String
+            let tStart = Date()
+            
+            if let existingTranscript = localTranscript ?? note.transcript, !existingTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                transcriptText = existingTranscript
+            } else if let url = note.audioURL {
+                transcriptText = try await summarizer.transcribe(audioURL: url) { partialText in
+                    DispatchQueue.main.async {
+                        self.localTranscript = partialText
+                    }
+                }
+                
+                let tDuration = Date().timeIntervalSince(tStart)
+                DispatchQueue.main.async {
+                    self.localTranscript = transcriptText
+                    self.note.transcript = transcriptText
+                    self.note.transcriptionDuration = tDuration
+                    try? self.modelContext.save()
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.processingError = "Please write a transcript first."
+                    self.isProcessing = false
+                }
+                return
+            }
+            
+            let sStart = Date()
+            let summaryText = try await summarizer.summarize(transcript: transcriptText)
+            let sDuration = Date().timeIntervalSince(sStart)
+            
+            DispatchQueue.main.async {
+                self.localSummary = summaryText
+                self.note.summary = summaryText
+                self.note.summaryDuration = sDuration
+                self.isProcessing = false
+                try? self.modelContext.save()
+            }
+        } catch is CancellationError {
+            // Task was cancelled, ignore
         } catch {
             print("Processing failed: \(error)")
-            DispatchQueue.main.async { self.isProcessing = false }
+            DispatchQueue.main.async { 
+                self.processingError = error.localizedDescription
+                self.isProcessing = false 
+            }
+        }
+        
+        DispatchQueue.main.async {
+            self.generationTask = nil
         }
     }
     

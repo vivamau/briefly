@@ -17,13 +17,13 @@ struct SettingsView: View {
                 Section(header: Text("Providers"), footer: Text("Choose which AI to use for individual notes versus generating daily, weekly, or monthly summaries.")) {
                     Picker("Default Provider", selection: $selectedProvider) {
                         ForEach(LLMProvider.allCases) { provider in
-                            Text(provider.rawValue).tag(provider)
+                            Text(provider.id == LLMProvider.ollama.id ? "Ollama (\(summarizer.ollamaModel))" : provider.rawValue).tag(provider)
                         }
                     }
                     
                     Picker("Periodic Summary Provider", selection: $periodicSummaryProvider) {
                         ForEach(LLMProvider.allCases) { provider in
-                            Text(provider.rawValue).tag(provider)
+                            Text(provider.id == LLMProvider.ollama.id ? "Ollama (\(summarizer.ollamaModel))" : provider.rawValue).tag(provider)
                         }
                     }
                 }
@@ -35,21 +35,37 @@ struct SettingsView: View {
                             .autocapitalization(.none)
                             #endif
                             .disableAutocorrection(true)
-                            .onChange(of: ollamaURL) { _ in
+                            .onChange(of: ollamaURL) {
                                 Task { await summarizer.fetchOllamaModels() }
                             }
                         
-                        Picker("Model", selection: $summarizer.ollamaModel) {
-                            if summarizer.ollamaAvailableModels.isEmpty {
-                                Text(summarizer.ollamaModel.isEmpty ? "No models found" : summarizer.ollamaModel).tag(summarizer.ollamaModel)
-                            } else {
-                                ForEach(summarizer.ollamaAvailableModels, id: \.self) { model in
-                                    Text(model).tag(model)
+                        HStack {
+                            Picker("Model", selection: $summarizer.ollamaModel) {
+                                if summarizer.ollamaAvailableModels.isEmpty {
+                                    Text(summarizer.ollamaModel.isEmpty ? "No models found" : summarizer.ollamaModel).tag(summarizer.ollamaModel)
+                                } else {
+                                    ForEach(summarizer.ollamaAvailableModels, id: \.self) { model in
+                                        Text(model).tag(model)
+                                    }
                                 }
                             }
+                            .onAppear {
+                                Task { await summarizer.fetchOllamaModels() }
+                            }
+                            
+                            Button(action: {
+                                Task { await summarizer.fetchOllamaModels() }
+                            }) {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Refresh Models")
                         }
-                        .onAppear {
-                            Task { await summarizer.fetchOllamaModels() }
+                        
+                        if let error = summarizer.ollamaFetchError {
+                            Text("Error: \(error)")
+                                .font(.caption)
+                                .foregroundColor(.red)
                         }
                     }
                 }

@@ -66,7 +66,7 @@ if [[ "$DEVELOPER_DIR" != *"Xcode.app"* ]]; then
     exit 1
 fi
 
-XCODE_VERSION=$(xcodebuild -version | head -1)
+XCODE_VERSION=$(xcodebuild -version | sed -n '1p')
 print_success "Using $XCODE_VERSION"
 
 # -----------------------------------------------------------

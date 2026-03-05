@@ -24,6 +24,7 @@ class SummarizationService: ObservableObject {
     @AppStorage("ollamaModel") var ollamaModel: String = "llama3"
     
     @Published var ollamaAvailableModels: [String] = []
+    @Published var ollamaFetchError: String?
     
     private var ollamaBaseURL: String {
         var base = ollamaURL
@@ -42,7 +43,7 @@ class SummarizationService: ObservableObject {
         
         do {
             var request = URLRequest(url: url)
-            request.timeoutInterval = 3 // Quick timeout for local check
+            request.timeoutInterval = 10 // Moderate timeout for local network check
             
             let (data, _) = try await URLSession.shared.data(for: request)
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -55,16 +56,22 @@ class SummarizationService: ObservableObject {
                 if !fetchedModels.isEmpty && !fetchedModels.contains(ollamaModel) {
                     self.ollamaModel = fetchedModels[0]
                 }
+                self.ollamaFetchError = nil
+            } else {
+                self.ollamaFetchError = "Failed to parse Ollama response."
             }
         } catch {
             print("Failed to fetch Ollama models: \(error)")
             self.ollamaAvailableModels = []
+            self.ollamaFetchError = error.localizedDescription
         }
     }
     
-    func transcribeAndSummarize(audioURL: URL) async throws -> (transcript: String, summary: String) {
-        let transcript = try await performAppleSpeechTranscription(audioURL: audioURL)
-        
+    func transcribe(audioURL: URL, onProgress: ((String) -> Void)? = nil) async throws -> String {
+        return try await performAppleSpeechTranscription(audioURL: audioURL, onProgress: onProgress)
+    }
+
+    func summarize(transcript: String) async throws -> String {
         var summary = ""
         switch selectedProvider {
         case .appleLocal:
@@ -79,7 +86,7 @@ class SummarizationService: ObservableObject {
             summary = try await summarizeWithGemini(transcript: transcript)
         }
         
-        return (transcript, summary)
+        return summary
     }
     
     // MARK: - Multi-Note Summarization
@@ -113,33 +120,59 @@ class SummarizationService: ObservableObject {
     }
     
     // MARK: - Local Speech Transcription
-    private func performAppleSpeechTranscription(audioURL: URL) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { authStatus in
-                guard authStatus == .authorized else {
-                    continuation.resume(throwing: NSError(domain: "Speech", code: 1, userInfo: [NSLocalizedDescriptionKey: "Speech Recognition not authorized"]))
-                    return
-                }
-                
-                guard let recognizer = SFSpeechRecognizer() else {
-                    continuation.resume(throwing: NSError(domain: "Speech", code: 2, userInfo: [NSLocalizedDescriptionKey: "Speech Recognizer not available on this locale"]))
-                    return
-                }
-                
-                let request = SFSpeechURLRecognitionRequest(url: audioURL)
-                request.shouldReportPartialResults = false
-                
-                recognizer.recognitionTask(with: request) { result, error in
-                    if let error = error {
-                        continuation.resume(throwing: error)
+    private func performAppleSpeechTranscription(audioURL: URL, onProgress: ((String) -> Void)? = nil) async throws -> String {
+        return try await withTaskCancellationHandler {
+            return try await withCheckedThrowingContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { authStatus in
+                    guard authStatus == .authorized else {
+                        continuation.resume(throwing: NSError(domain: "Speech", code: 1, userInfo: [NSLocalizedDescriptionKey: "Speech Recognition not authorized"]))
                         return
                     }
                     
-                    if let result = result, result.isFinal {
-                        continuation.resume(returning: result.bestTranscription.formattedString)
+                    guard let recognizer = SFSpeechRecognizer() else {
+                        continuation.resume(throwing: NSError(domain: "Speech", code: 2, userInfo: [NSLocalizedDescriptionKey: "Speech Recognizer not available on this locale"]))
+                        return
                     }
+                    
+                    let request = SFSpeechURLRecognitionRequest(url: audioURL)
+                    request.shouldReportPartialResults = true
+                    
+                    var hasResumed = false
+                    _ = recognizer.recognitionTask(with: request) { result, error in
+                        var isFinished = false
+                        
+                        if let result = result {
+                            isFinished = result.isFinal
+                            
+                            if isFinished {
+                                if !hasResumed {
+                                    hasResumed = true
+                                    continuation.resume(returning: result.bestTranscription.formattedString)
+                                }
+                            } else {
+                                onProgress?(result.bestTranscription.formattedString)
+                            }
+                        }
+                        
+                        if let error = error {
+                            if !hasResumed {
+                                hasResumed = true
+                                if let lastResult = result?.bestTranscription.formattedString, !lastResult.isEmpty {
+                                    continuation.resume(returning: lastResult)
+                                } else {
+                                    continuation.resume(throwing: error)
+                                }
+                            }
+                        }
+                    }
+                    
+                    // We store the task pointer in a local object that can cancel it, but withCheckedThrowingContinuation doesn't easily expose an async handle. 
+                    // However, we rely on the parent task cancellation handler.
                 }
             }
+        } onCancel: {
+            // Because SFSpeechRecognizer isn't fully thread-safe for direct cancellation without a handle, we primarily rely on URLSession for LLMs, but can't easily cancel the Apple speech task directly without a global/class wrapper.
+            // The Swift underlying Task is cancelled, which is what we need for URLSession.
         }
     }
     
@@ -149,6 +182,8 @@ class SummarizationService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Local models on big transcripts can take multiple minutes. URLSession default is 60s.
+        request.timeoutInterval = 600 
         
         let promptText = customPrompt ?? "Summarize the following voice note transcript:\n\n\(transcript)"
         
@@ -188,6 +223,7 @@ class SummarizationService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
         
         let promptText = customPrompt ?? "Please provide a concise and well-structured summary of the following voice note transcript:\n\n\(transcript)"
         

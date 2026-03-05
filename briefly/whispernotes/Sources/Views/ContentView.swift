@@ -22,9 +22,16 @@ struct ContentView: View {
                         VStack(alignment: .leading) {
                             Text(note.title)
                                 .font(.headline)
-                            Text(note.creationDate, format: Date.FormatStyle(date: .numeric, time: .standard))
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
+                            HStack {
+                                Text(note.creationDate, format: Date.FormatStyle(date: .numeric, time: .standard))
+                                
+                                if note.duration > 0 {
+                                    Spacer()
+                                    Label(formatTime(note.duration), systemImage: "clock")
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                         }
                     }
                     .contextMenu {
@@ -74,16 +81,29 @@ struct ContentView: View {
                 SettingsView(summarizer: summarizer)
             }
         } detail: {
-            Group {
-                if let note = selectedNote {
-                    NoteDetailView(note: note, player: player, summarizer: summarizer)
-                        .id(note.id)
-                } else {
-                    Text("Select a Voice Note")
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZStack {
+                Group {
+                    if let note = selectedNote {
+                        NoteDetailView(note: note, player: player, summarizer: summarizer)
+                            .id(note.id)
+                    } else {
+                        Text("Select a Voice Note or Record a New One")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .disabled(recorder.isRecording)
+                .opacity(recorder.isRecording ? 0.2 : 1.0)
+                
+                if recorder.isRecording {
+                    Text(formatTime(recorder.recordingDuration))
+                        .font(.system(size: 80, weight: .light).monospacedDigit())
+                        .foregroundColor(.red)
+                        .transition(.scale.combined(with: .opacity))
+                        .accessibilityLabel("Recording for \(formatTime(recorder.recordingDuration))")
                 }
             }
+            .animation(.easeInOut, value: recorder.isRecording)
             .safeAreaInset(edge: .bottom) {
                 recordButtonView
             }
@@ -108,14 +128,6 @@ struct ContentView: View {
             Spacer()
             
             VStack {
-                if recorder.isRecording {
-                    Text(formatTime(recorder.recordingDuration))
-                        .font(.caption.monospacedDigit())
-                        .foregroundColor(.red)
-                        .padding(.bottom, 4)
-                        .accessibilityLabel("Recording for \(formatTime(recorder.recordingDuration))")
-                }
-                
                 HStack(spacing: 30) {
                     if recorder.isRecording {
                         Button(action: {
@@ -126,9 +138,12 @@ struct ContentView: View {
                                 .font(.system(size: 40))
                                 .foregroundColor(.secondary)
                         }
+                        .frame(width: 70, height: 70)
                         .buttonStyle(.plain)
                         .accessibilityLabel("Cancel Recording")
                         .accessibilityHint("Discard the current voice note")
+                    } else {
+                        Color.clear.frame(width: 70, height: 70)
                     }
                     
                     Button(action: toggleRecording) {
@@ -164,7 +179,22 @@ struct ContentView: View {
                     if recorder.isRecording {
                         // Invisible placeholder to keep the main button perfectly centered
                         Color.clear
-                            .frame(width: 40, height: 40)
+                            .frame(width: 70, height: 70)
+                    } else {
+                        Button(action: createTextNote) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.blue.opacity(0.8))
+                                    .frame(width: 70, height: 70)
+                                
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 30))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Write Note")
+                        .accessibilityHint("Create a new text note without recording audio")
                     }
                 }
             }
@@ -202,6 +232,18 @@ struct ContentView: View {
         let newTitle = "Note \(formatter.string(from: Date()))"
         let newNote = VoiceNote(title: newTitle, audioURL: audioURL, duration: duration)
         modelContext.insert(newNote)
+    }
+    
+    private func createTextNote() {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        
+        let newTitle = "Written Note \(formatter.string(from: Date()))"
+        let newNote = VoiceNote(title: newTitle, audioURL: nil, duration: 0)
+        newNote.transcript = "" // Empty transcript to allow editing immediately
+        modelContext.insert(newNote)
+        selectedNote = newNote
     }
     
     // Generate Periodic Summary
@@ -243,10 +285,14 @@ struct ContentView: View {
                     
                     for note in filteredNotes {
                         if (note.transcript == nil || note.summary == nil), let url = note.audioURL {
-                            let result = try await summarizer.transcribeAndSummarize(audioURL: url)
+                            let transcriptText = try await summarizer.transcribe(audioURL: url)
                             await MainActor.run {
-                                note.transcript = result.transcript
-                                note.summary = result.summary
+                                note.transcript = transcriptText
+                            }
+                            
+                            let summaryText = try await summarizer.summarize(transcript: transcriptText)
+                            await MainActor.run {
+                                note.summary = summaryText
                             }
                         }
                     }

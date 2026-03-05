@@ -10,6 +10,8 @@ final class VoiceNote {
     var duration: TimeInterval
     var transcript: String?
     var summary: String?
+    var transcriptionDuration: TimeInterval?
+    var summaryDuration: TimeInterval?
     var isFavorite: Bool
     
     init(title: String, audioURL: URL?, duration: TimeInterval = 0) {
