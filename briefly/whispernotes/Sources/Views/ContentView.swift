@@ -20,8 +20,13 @@ struct ContentView: View {
                 ForEach(notes) { note in
                     NavigationLink(value: note) {
                         VStack(alignment: .leading) {
-                            Text(note.title)
-                                .font(.headline)
+                            HStack(spacing: 6) {
+                                Image(systemName: note.audioURL != nil ? "mic" : "pencil")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                Text(note.title)
+                                    .font(.headline)
+                            }
                             HStack {
                                 Text(note.creationDate, format: Date.FormatStyle(date: .numeric, time: .standard))
                                 
